@@ -11,7 +11,7 @@
 package main
 
 import (
-	"context"
+	"sync/atomic"
 	"time"
 )
 
@@ -23,35 +23,38 @@ type User struct {
 	TimeUsed  int64 // in seconds
 }
 
+const MaxDurationSeconds = 10
+
+var ticker = time.Tick(time.Second)
+
 // HandleRequest runs the processes requested by users. Returns false
 // if process had to be killed
 func HandleRequest(process func(), u *User) bool {
-	var (
-		ctx    context.Context
-		cancel context.CancelFunc
-		c      chan bool
-	)
+	done := make(chan bool)
 
-	c = make(chan bool, 1)
-	c <- true
-
-	if u.IsPremium == false {
-		ctx, cancel = context.WithTimeout(context.Background(), 10*time.Second)
-
-		defer cancel()
-
-		go func() {
-			select {
-			case <-ctx.Done():
-				<-c
-				c <- false
-			}
-		}()
+	if u.IsPremium {
+		process()
+		return true
 	}
+	go func() {
+		process()
+		done <- true
+	}()
 
-	process()
-
-	return <-c
+	for {
+		select {
+		case isDone := <-done:
+			if isDone {
+				return true
+			}
+		case <-ticker:
+			if atomic.LoadInt64(&u.TimeUsed) >= MaxDurationSeconds {
+				return false
+			} else {
+				atomic.AddInt64(&u.TimeUsed, 1)
+			}
+		}
+	}
 }
 
 func main() {
