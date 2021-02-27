@@ -13,9 +13,31 @@
 
 package main
 
+import (
+	"os"
+	"os/signal"
+	"sync/atomic"
+)
+
+var callCount int32 = 0
+
 func main() {
+	signals := make(chan os.Signal, 1)
 	// Create a process
 	proc := MockProcess{}
+
+	signal.Notify(signals, os.Interrupt)
+
+	go func() {
+		for range signals {
+			if atomic.LoadInt32(&callCount) == 0 {
+				go proc.Stop()
+				atomic.AddInt32(&callCount, 1)
+			} else {
+				os.Exit(0)
+			}
+		}
+	}()
 
 	// Run the process (blocking)
 	proc.Run()
